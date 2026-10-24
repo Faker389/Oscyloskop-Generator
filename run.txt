@@ -1,0 +1,1 @@
+g++ -std=c++17 -O2 -Wall -I third_party/raylib/src -o metrologia.exe main.cpp engine.cpp -L third_party/raylib/src -lraylib -lgdi32 -lwinmm -lopengl32

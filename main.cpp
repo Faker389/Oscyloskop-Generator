@@ -358,6 +358,40 @@ static void DrawShapeIn(Rectangle r, int ch, Color col)
     }
 }
 
+static Camera2D cam = { { 0, 0 }, { 0, 0 }, 0.0f, 1.0f };
+static Font gUi{};
+
+static void DrawPl(const char *text, float x, float y, float size, Color c)
+{
+    if (gUi.texture.id) DrawTextEx(gUi, text, Vector2{ x, y }, size, 0.3f, c);
+    else DrawText(text, (int)x, (int)y, (int)size, c);
+}
+
+static void BeginWorldScissor(float x, float y, float w, float h)
+{
+    Vector2 a = GetWorldToScreen2D(Vector2{ x, y }, cam);
+    Vector2 b = GetWorldToScreen2D(Vector2{ x + w, y + h }, cam);
+    float x0 = a.x < b.x ? a.x : b.x;
+    float y0 = a.y < b.y ? a.y : b.y;
+    float x1 = a.x > b.x ? a.x : b.x;
+    float y1 = a.y > b.y ? a.y : b.y;
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    if (x1 <= 0 || y1 <= 0 || x0 >= sw || y0 >= sh) {
+        BeginScissorMode(0, 0, 0, 0);
+        return;
+    }
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > sw) x1 = (float)sw;
+    if (y1 > sh) y1 = (float)sh;
+    int iw = (int)std::ceil(x1) - (int)std::floor(x0);
+    int ih = (int)std::ceil(y1) - (int)std::floor(y0);
+    if (iw < 1) iw = 1;
+    if (ih < 1) ih = 1;
+    BeginScissorMode((int)std::floor(x0), (int)std::floor(y0), iw, ih);
+}
+
 static float VoltY(int ch, float volts, float gy, float gh, double vdiv, double pos)
 {
     float cy = gy + gh * 0.5f;
@@ -417,6 +451,22 @@ static void DrawScopeScreen(Rectangle lcd)
     Color grid = s.screenInv ? Color{ 30, 90, 40, (unsigned char)(s.gridBright * 255) }
                              : Color{ 40, 90, 50, (unsigned char)(s.gridBright * 255) };
     if (s.grid == 0) {
+        Color minor = Fade(grid, 0.85f);
+        const float dot = 1.4f, gap = 2.2f, pitch = dot + gap;
+        auto dottedV = [&](float x) {
+            for (float y = gy; y < gy + gh; y += pitch)
+                DrawLineEx((Vector2){ x, y }, (Vector2){ x, y + dot > gy + gh ? gy + gh : y + dot }, 1, minor);
+        };
+        auto dottedH = [&](float y) {
+            for (float x = gx; x < gx + gw; x += pitch)
+                DrawLineEx((Vector2){ x, y }, (Vector2){ x + dot > gx + gw ? gx + gw : x + dot, y }, 1, minor);
+        };
+        for (int i = 0; i < 10; i++)
+            for (int k = 1; k <= 4; k++)
+                dottedV(gx + (i + k / 5.0f) * (gw / 10.0f));
+        for (int i = 0; i < 8; i++)
+            for (int k = 1; k <= 4; k++)
+                dottedH(gy + (i + k / 5.0f) * (gh / 8.0f));
         for (int i = 0; i <= 10; i++) {
             float x = gx + gw * i / 10.0f;
             DrawLineEx((Vector2){ x, gy }, (Vector2){ x, gy + gh }, 1, Fade(grid, 0.75f));
@@ -430,7 +480,7 @@ static void DrawScopeScreen(Rectangle lcd)
         DrawLineEx((Vector2){ gx + gw * 0.5f, gy }, (Vector2){ gx + gw * 0.5f, gy + gh }, 1, grid);
     }
 
-    BeginScissorMode((int)gx, (int)gy, (int)gw, (int)gh);
+    BeginWorldScissor(gx, gy, gw, gh);
     Color cols[2] = { Color{ 230, 200, 70, 255 }, Color{ 70, 210, 140, 255 } };
     cols[0].a = (unsigned char)(s.intensity * 255);
     cols[1].a = cols[0].a;
@@ -621,8 +671,8 @@ static void DrawGenScreen(Rectangle lcd)
             "DG1022  20 MHz  dual channel",
             "Sine 20 MHz   Square 5 MHz",
             "Ramp 150 kHz  Pulse 3 MHz",
-            "CH1 4 mV..20 Vpp into High Z",
-            "CH2 4 mV..6 Vpp into High Z",
+            "CH1 0.004 V..20 Vpp into High Z",
+            "CH2 0.004 V..6 Vpp into High Z",
             "50 ohm load doubles scope V",
             "Mod, Sweep, Burst are CH1",
             "Output ON sends the BNC signal",
@@ -956,6 +1006,178 @@ static void DrawGenerator(float ox, float oy, float ow, float oh)
              (int)(ox + ow - 290), (int)(oy + oh - 22), 10, Color{ 90, 100, 110, 255 });
 }
 
+// Lab sheet beside the scope.
+// Umax = Up = Upp/2.  Ū is the generator offset, shown as set.
+static bool gLabOn = true;
+
+static void DrawLabEye(float x, float y, float w)
+{
+    Rectangle r{ x + w - 38, y + 8, 28, 22 };
+    DrawRectangleRounded(r, 0.4f, 6, Color{ 255, 255, 255, 255 });
+    DrawRectangleRoundedLinesEx(r, 0.4f, 6, 1.2f, Color{ 70, 74, 82, 255 });
+    int cx = (int)(r.x + r.width * 0.5f);
+    int cy = (int)(r.y + r.height * 0.5f);
+    Color ink{ 36, 40, 48, 255 };
+    DrawEllipseLines(cx, cy, 9.0f, 5.5f, ink);
+    DrawCircleV(Vector2{ (float)cx, (float)cy }, 2.3f, ink);
+    if (!gLabOn) DrawLineEx(Vector2{ (float)cx - 8, (float)cy + 5 }, Vector2{ (float)cx + 8, (float)cy - 5 }, 1.7f, ink);
+    AddR(ID_LAB, r);
+}
+
+static void DrawLabPanel(float x, float y, float w, float h)
+{
+    if (!gLabOn) {
+        DrawLabEye(x, y, w);
+        return;
+    }
+    int src = app.sc.active == 1 ? 1 : 0;
+    const ScopeCh &ch = app.sc.ch[src];
+    double cy = ch.vdiv;
+    double cx = app.sc.delayOn ? app.sc.delayDiv : app.sc.tdiv;
+    bool live = app.gen.ch[src].output && ch.coupling != 2 && cy > 0 && cx > 0;
+
+    double ly = 0, lx = 0, ldc = 0, upp = 0, udc = 0, uac = 0, u = 0, per = 0;
+    bool hasPer = false;
+    if (live) {
+        const int N = 480;
+        double buf[480];
+        double f = std::max(app.gen.ch[src].freq, 1.0);
+        double span = 3.0 / f;
+        double dt = span / (N - 1);
+        double sum = 0, sum2 = 0, vmin = 1e300, vmax = -1e300;
+        for (int i = 0; i < N; i++) {
+            double v = ScopeVolts(src, i * dt);
+            buf[i] = v;
+            sum += v;
+            sum2 += v * v;
+            if (v < vmin) vmin = v;
+            if (v > vmax) vmax = v;
+        }
+        double mean = sum / N;
+        udc = mean;
+        ldc = udc / cy;
+        upp = vmax - vmin;
+        ly = upp / cy;
+        double var = sum2 / N - mean * mean;
+        if (var < 0) var = 0;
+        uac = std::sqrt(var);
+        u = std::sqrt(udc * udc + uac * uac);
+        double mid = 0.5 * (vmin + vmax);
+        int rises = 0;
+        double first = 0, last = 0;
+        for (int i = 1; i < N; i++) {
+            if (buf[i - 1] < mid && buf[i] >= mid) {
+                double frac = (mid - buf[i - 1]) / std::max(1e-15, buf[i] - buf[i - 1]);
+                double tc = (i - 1 + frac) * dt;
+                if (rises == 0) first = tc;
+                last = tc;
+                rises++;
+            }
+        }
+        if (rises >= 2 && last > first) {
+            per = (last - first) / (rises - 1);
+            lx = per / cx;
+            hasPer = per > 0;
+        }
+    }
+
+    DrawRectangleRounded(Rectangle{ x, y, w, h }, 0.03f, 6, Color{ 248, 246, 240, 255 });
+    DrawRectangleRoundedLinesEx(Rectangle{ x, y, w, h }, 0.03f, 6, 1.5f, Color{ 90, 86, 74, 255 });
+    float tx = x + 12;
+    float ty = y + 10;
+    DrawPl(src ? "Kanał 2" : "Kanał 1", tx, ty, 20, Color{ 30, 30, 32, 255 });
+    ty += 26;
+    if (!app.gen.ch[src].output) DrawPl("Brak sygnału — wyjście wyłączone", tx, ty, 14, Color{ 140, 50, 40, 255 });
+    else if (ch.coupling == 2) DrawPl("Sprzężenie GND", tx, ty, 14, Color{ 140, 50, 40, 255 });
+    else DrawPl("Odczyt z ekranu oscyloskopu", tx, ty, 14, Color{ 80, 80, 84, 255 });
+    ty += 24;
+
+    char a[64], b[64], line[96];
+    auto show = [&](const char *name, const char *formula, bool known, bool needSignal = true) {
+        DrawPl(name, tx, ty, 15, Color{ 24, 24, 28, 255 });
+        ty += 18;
+        if (!known) DrawPl(formula, tx, ty, 15, Color{ 150, 60, 40, 255 });
+        else if (needSignal && !live) DrawPl("—", tx, ty, 15, Color{ 90, 90, 96, 255 });
+        else DrawPl(formula, tx, ty, 15, Color{ 20, 70, 40, 255 });
+        ty += 22;
+    };
+
+    FmtVolt(a, 64, cy);
+    std::snprintf(line, sizeof(line), "Cy = %s/dz", a);
+    DrawPl(line, tx, ty, 14, Color{ 50, 50, 56, 255 });
+    ty += 18;
+    FmtTime(b, 64, cx);
+    std::snprintf(line, sizeof(line), "Cx = %s/dz", b);
+    DrawPl(line, tx, ty, 14, Color{ 50, 50, 56, 255 });
+    ty += 26;
+
+    if (live) {
+        char lyS[32], cyS[32], uppS[32];
+        std::snprintf(lyS, sizeof(lyS), "%.3f", ly);
+        FmtVolt(cyS, 32, cy);
+        FmtVolt(uppS, 32, upp);
+        std::snprintf(line, sizeof(line), "Upp = %s dz · %s = %s", lyS, cyS, uppS);
+    }
+    show("Wartość międzyszczytowa", live ? line : "", true);
+
+    if (live) {
+        char upS[32];
+        FmtVolt(upS, 32, upp * 0.5);
+        std::snprintf(line, sizeof(line), "Umax = Up = Upp/2 = %s", upS);
+    }
+    show("Wartość szczytowa", live ? line : "", true);
+
+    {
+        char usrS[32];
+        FmtVolt(usrS, 32, app.gen.ch[src].offset);
+        std::snprintf(line, sizeof(line), "Ū = %s", usrS);
+    }
+    show("Wartość średnia", line, true, false);
+
+    if (live) {
+        char uacS[32];
+        FmtVolt(uacS, 32, uac);
+        std::snprintf(line, sizeof(line), "Uac = %s", uacS);
+    }
+    show("Wartość skuteczna składowej zmiennej", live ? line : "", true);
+
+    if (live) {
+        char uS[32], udcS[32], uacS[32];
+        FmtVolt(udcS, 32, udc);
+        FmtVolt(uacS, 32, uac);
+        FmtVolt(uS, 32, u);
+        std::snprintf(line, sizeof(line), "U = √(%s² + %s²) = %s", udcS, uacS, uS);
+    }
+    show("Wartość skuteczna (ze składową stałą)", live ? line : "", true);
+
+    if (live) {
+        char ldcS[32], cyS[32], udcS[32];
+        std::snprintf(ldcS, sizeof(ldcS), "%.3f", ldc);
+        FmtVolt(cyS, 32, cy);
+        FmtVolt(udcS, 32, udc);
+        std::snprintf(line, sizeof(line), "Udc = %s dz · %s = %s", ldcS, cyS, udcS);
+    }
+    show("Składowa stała", live ? line : "", true);
+
+    if (live && hasPer) {
+        char lxS[32], cxS[32], tS[32];
+        std::snprintf(lxS, sizeof(lxS), "%.3f", lx);
+        FmtTime(cxS, 32, cx);
+        FmtTime(tS, 32, per);
+        std::snprintf(line, sizeof(line), "T = %s dz · %s = %s", lxS, cxS, tS);
+    }
+    show("Okres sygnału", (live && hasPer) ? line : "T = lx·Cx = —", true);
+
+    if (live && hasPer) {
+        char fS[32];
+        FmtFreq(fS, 32, 1.0 / per);
+        std::snprintf(line, sizeof(line), "f = 1/T = %s", fS);
+    }
+    show("Częstotliwość sygnału", (live && hasPer) ? line : "f = 1/T = —", true);
+    (void)a; (void)b;
+    DrawLabEye(x, y, w);
+}
+
 // -----------------------------------------------------------------------------
 int main()
 {
@@ -967,6 +1189,24 @@ int main()
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
     InitWindow(W, H, "RIGOL DS1062C  +  RIGOL DG1022");
     SetTargetFPS(60);
+    {
+        int cps[128];
+        int n = 0;
+        for (int c = 32; c < 127; c++) cps[n++] = c;
+        const int extra[] = {
+            0x00B1, 0x00B2, 0x00B7, 0x00D7, 0x03C0, 0x221A, 0x2014,
+            0x00D3, 0x00F3, 0x0104, 0x0105, 0x0106, 0x0107,
+            0x0118, 0x0119, 0x0141, 0x0142, 0x0143, 0x0144,
+            0x015A, 0x015B, 0x016A, 0x016B, 0x0179, 0x017A, 0x017B, 0x017C
+        };
+        for (int c : extra) cps[n++] = c;
+        const char *path = "C:/Windows/Fonts/segoeui.ttf";
+        if (!FileExists(path)) path = "C:/Windows/Fonts/arial.ttf";
+        if (FileExists(path)) {
+            gUi = LoadFontEx(path, 32, cps, n);
+            SetTextureFilter(gUi.texture, TEXTURE_FILTER_BILINEAR);
+        }
+    }
     InitAudioDevice();
     Wave wave{};
     wave.frameCount = 1600;
@@ -993,18 +1233,38 @@ int main()
 
     while (!WindowShouldClose())
     {
-        Vector2 m = GetMousePosition();
+        Vector2 screen = GetMousePosition();
+        bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        float wheel = GetMouseWheelMove();
+        if (wheel != 0.0f && ctrl) {
+            Vector2 before = GetScreenToWorld2D(screen, cam);
+            cam.zoom = Clamp(cam.zoom * std::pow(1.12f, wheel), 0.35f, 8.0f);
+            Vector2 after = GetScreenToWorld2D(screen, cam);
+            cam.target.x += before.x - after.x;
+            cam.target.y += before.y - after.y;
+        }
+        if (ctrl && (IsKeyPressed(KEY_ZERO) || IsKeyPressed(KEY_KP_0))) {
+            cam.zoom = 1.0f;
+            cam.target = Vector2{ 0, 0 };
+        }
+        Vector2 m = GetScreenToWorld2D(screen, cam);
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            int ni = PickNudge(m);
             nudgeId = 0;
-            if (ni >= 0) { nudgeId = gNudges[ni].id; nudgeDir = gNudges[ni].dir; capture = 0; }
-            else capture = PickHit(m);
+            if (ctrl) {
+                capture = 0;
+                gHeld = 0;
+                dragged = true;
+            } else {
+                int ni = PickNudge(m);
+                if (ni >= 0) { nudgeId = gNudges[ni].id; nudgeDir = gNudges[ni].dir; capture = 0; }
+                else capture = PickHit(m);
+                dragged = false;
+                gHeld = capture;
+            }
             capAt = m;
             acc = 0;
             pendingX = pendingY = 0;
             dragAxis = 0;
-            dragged = false;
-            gHeld = capture;
         }
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && IsKnob(capture)) {
             Vector2 d = GetMouseDelta();
@@ -1025,10 +1285,17 @@ int main()
                 dragged = true;
             }
         }
-        float wheel = GetMouseWheelMove();
-        if (wheel != 0.0f) {
+        if (wheel != 0.0f && !ctrl) {
             int id = PickHit(m);
             if (IsKnob(id)) TurnKnob(id, wheel > 0 ? 1 : -1);
+        }
+        bool viewMoved = std::fabs(cam.zoom - 1.0f) > 0.02f;
+        bool ctrlPan = IsMouseButtonDown(MOUSE_BUTTON_LEFT) && ctrl && capture == 0 && !nudgeId;
+        if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE) || ctrlPan ||
+            (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && capture == 0 && !nudgeId && viewMoved)) {
+            Vector2 d = GetMouseDelta();
+            cam.target.x -= d.x / cam.zoom;
+            cam.target.y -= d.y / cam.zoom;
         }
         int ch = GetCharPressed();
         while (ch > 0) { AppKey(ch); ch = GetCharPressed(); }
@@ -1037,16 +1304,18 @@ int main()
         if (IsKeyPressed(KEY_LEFT)) AppTurn(G_LEFT, 0);
         if (IsKeyPressed(KEY_RIGHT)) AppTurn(G_RIGHT, 0);
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && nudgeId && !capture) {
-            if (Vector2Distance(m, capAt) < 8.0f) TurnKnob(nudgeId, nudgeDir);
+            if (Vector2Distance(m, capAt) * cam.zoom < 8.0f) TurnKnob(nudgeId, nudgeDir);
             nudgeId = 0;
         }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && capture) {
-            if (Vector2Distance(m, capAt) < 8.0f && !dragged) {
+            if (Vector2Distance(m, capAt) * cam.zoom < 8.0f && !dragged) {
                 float local = 0;
                 for (int i = 0; i < gHitN; i++) if (gHits[i].id == capture) local = m.x - gHits[i].r.x;
-                if (IsKnob(capture)) AppKnobClick(capture);
+                if (capture == ID_LAB) gLabOn = !gLabOn;
+                else if (IsKnob(capture)) AppKnobClick(capture);
                 else AppPressCh(capture, local);
-                if (app.audioReady && (capture >= G_WAVE ? app.gen.beep : app.sc.beep)) PlaySound(click);
+                bool beep = capture == ID_LAB ? app.sc.beep : (capture >= G_WAVE ? app.gen.beep : app.sc.beep);
+                if (app.audioReady && beep) PlaySound(click);
             }
             capture = 0;
             gHeld = 0;
@@ -1057,15 +1326,19 @@ int main()
         BeginDrawing();
         ClearBackground(Color{ 236, 236, 238, 255 });
         ClearHits();
+        BeginMode2D(cam);
         DrawText("DG1022 CH1 -> DS1062C CH1    DG1022 CH2 -> DS1062C CH2    scope input 1 Mohm",
-                 18, 12, 16, Color{ 55, 60, 66, 255 });
-        DrawOscilloscope(20, 40, 830, 540);
-        DrawGenerator(890, 100, 950, 450);
-        DrawText("Turn a knob vertically or horizontally, or use the wheel. Click a scope knob to center it. Output starts OFF.",
-                 18, 742, 15, Color{ 70, 74, 80, 255 });
+                 356, 12, 16, Color{ 55, 60, 66, 255 });
+        DrawLabPanel(8, 36, 340, 700);
+        DrawOscilloscope(356, 40, 830, 540);
+        DrawGenerator(1206, 100, 950, 450);
+        DrawText("Ctrl+drag moves the view. Ctrl+scroll zooms, Ctrl+0 resets. Wheel on a knob still turns that knob.",
+                 356, 742, 15, Color{ 70, 74, 80, 255 });
+        EndMode2D();
         EndDrawing();
     }
 
+    if (gUi.texture.id) UnloadFont(gUi);
     UnloadSound(click);
     CloseAudioDevice();
     CloseWindow();

@@ -1,0 +1,15 @@
+OK sine Vpp  got 5 expected 5
+OK sine freq  got 1000 expected 1000
+OK sine Vrms  got 1.76777 expected 1.76777
+OK sine rise  got 0.000293534 expected 0.000295167
+OK 50ohm Vpp  got 10 expected 10
+OK output off  got 0 expected 0
+OK square rise  got 1.99228e-08 expected 2e-08
+OK CH2 clamp  got 6 expected 6
+OK square fmax  got 5e+06 expected 5e+06
+OK AC average  got 1.28786e-16 expected 0
+OK probe 10x  got 50 expected 50
+OK freq name  got 0 expected 0
+OK freq digit  got 4 expected 4
+OK period name  got 0 expected 0
+ALL PASSED

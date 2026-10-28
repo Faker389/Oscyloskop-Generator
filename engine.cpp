@@ -79,15 +79,17 @@ int FmtTimeAt(char *b, int n, double sec, int digit, bool cursor)
 }
 void FmtVpp(char *b, int n, double v)
 {
-    if (std::fabs(v) >= 1) std::snprintf(b, n, "%.1f Vpp", v);
-    else std::snprintf(b, n, "%.2f mVpp", v * 1e3);
+    double a = std::fabs(v);
+    if (a >= 1) std::snprintf(b, n, "%.1f Vpp", v);
+    else if (a >= 1e-3) std::snprintf(b, n, "%.4f Vpp", v);
+    else std::snprintf(b, n, "%.6f Vpp", v);
 }
 void FmtVolt(char *b, int n, double v)
 {
     double a = std::fabs(v);
     if (a >= 1) std::snprintf(b, n, "%+.1f V", v);
-    else if (a >= 1e-3) std::snprintf(b, n, "%+.2f mV", v * 1e3);
-    else std::snprintf(b, n, "%+.1f uV", v * 1e6);
+    else if (a >= 1e-3) std::snprintf(b, n, "%+.4f V", v);
+    else std::snprintf(b, n, "%+.6f V", v);
 }
 void FmtTime(char *b, int n, double s)
 {
